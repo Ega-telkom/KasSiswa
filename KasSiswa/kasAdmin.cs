@@ -159,8 +159,8 @@ namespace KasSiswa
                 con.Close();
             }
 
-            MessageBox.Show("Menagih sebanyak " + jumlahSelected + " siswa");
             LoadTagihan(); // refresh table to show unpaid only
+            MessageBox.Show("Menagih sebanyak " + jumlahSelected + " siswa");
         }
 
         // Fungsi Lunas
@@ -197,8 +197,8 @@ namespace KasSiswa
                 con.Close();
             }
 
-            MessageBox.Show("Melunasi sebanyak " + jumlahSelected + " siswa");
             LoadTagihan(); // refresh table to show unpaid only
+            MessageBox.Show("Melunasi sebanyak " + jumlahSelected + " siswa");
         }
 
         private void kasAdmin_Load(object sender, EventArgs e)

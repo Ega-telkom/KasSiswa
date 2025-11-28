@@ -48,8 +48,8 @@ namespace KasSiswa
 
                     // Tampilkan form kasAdmin dan pass data nama
                     kasAdmin formKasAdmin = new kasAdmin(nama);
+                    formKasAdmin.FormClosed += (s, args) => Application.Exit();
                     formKasAdmin.Show();
-                    MessageBox.Show("HALO ADMIN");
 
                     // Sembunyikan Login pada saat berhasil
                     this.Hide();
@@ -70,8 +70,18 @@ namespace KasSiswa
             onLogin();
         }
 
-        // Event pada saat menekan tombol Enter di txtPassword
+        //
+        // Event pada saat menekan tombol Enter di txtPassword dan txtUsername
         private void txtPassword_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.KeyCode == Keys.Enter)
+            {
+                onLogin();
+                e.SuppressKeyPress = true;
+            }
+        }
+
+        private void txtUsername_KeyDown(object sender, KeyEventArgs e)
         {
             if (e.KeyCode == Keys.Enter)
             {
