@@ -8,169 +8,258 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
-using static KasSiswa.kasAdmin;
 using System.Configuration;
 
 namespace KasSiswa
 {
     public partial class kasAdmin : Form
     {
+        // Koneksi Database
+        private string ConnString => $"Data Source={ConfigurationManager.AppSettings["DBHost"]};Initial Catalog={ConfigurationManager.AppSettings["DBName"]};Integrated Security=True;Connect Timeout=30;";
+
+        SqlDataAdapter adapterSiswa;
+        SqlDataAdapter adapterTagihan;
+        SqlCommandBuilder builderSiswa;
+        DataTable dtSiswa;
+        DataTable dtTagihan;
+
         public kasAdmin(string nama)
         {
             InitializeComponent();
-            lblWelcome.Text = "Selamat datang admin bendahara: " + nama;
-        }
-        
-        // Koneksi Database
-        private string ConnString => $"Data Source={ConfigurationManager.AppSettings["DBHost"]};Initial Catalog={ConfigurationManager.AppSettings["DBName"]};Integrated Security=True;Connect Timeout=30;";
-        SqlCommand cmd;
-        SqlDataReader dr;
-
-        // Kumpulan data Siswa
-        public class SiswaItem
-        {
-            public int IdSiswa { get; set; }
-            public string NamaSiswa { get; set; }
-            public int NoHp { get; set; }
+            toolStripUser.Text = "Masuk sebagai: " + nama;
         }
 
-        // Kumpulan data Tagihan
-        public class TagihanItem : SiswaItem
+        private void kasAdmin_Load(object sender, EventArgs e)
         {
-            public string IdTagihan { get; set; }
-            public int JumlahTagihan { get; set; }
+            LoadSiswa();
+            LoadTagihan();
+            UpdateStatusBar();
+            UpdateStatusTagihan();
         }
 
-        // Muat data Siswa
-        public void loadSiswa()
+        // Load data Siswa dengan DataAdapter
+        public void LoadSiswa()
         {
-            List<SiswaItem> siswaItems = new List<SiswaItem>();
-
-            using (SqlConnection con = new SqlConnection(ConnString))
+            try
             {
+                string query = "SELECT id_siswa, no_absen, nama_siswa, nohp FROM siswa ORDER BY no_absen";
+                adapterSiswa = new SqlDataAdapter(query, ConnString);
+                builderSiswa = new SqlCommandBuilder(adapterSiswa);
 
-                string query = "SELECT id_siswa, nama_siswa, nohp FROM siswa";
+                dtSiswa = new DataTable();
+                adapterSiswa.Fill(dtSiswa);
 
-                con.Open();
-                cmd = new SqlCommand(query, con);
-                dr = cmd.ExecuteReader();
+                // Set primary key
+                dtSiswa.PrimaryKey = new DataColumn[] { dtSiswa.Columns["id_siswa"] };
 
-                while (dr.Read())
+                // Handle new rows - generate GUID otomatis
+                dtSiswa.ColumnChanging += (s, ev) =>
                 {
-                    siswaItems.Add(new SiswaItem
+                    if (ev.Column.ColumnName == "no_absen" || ev.Column.ColumnName == "nama_siswa")
                     {
-                        IdSiswa = Convert.ToInt32(dr["id_siswa"]),
-                        NamaSiswa = dr["nama_siswa"].ToString(),
-                        NoHp = Convert.ToInt32(dr["nohp"])
-                    });
-                }
-                dr.Close();
-            }
+                        if (ev.Row["id_siswa"] == DBNull.Value || string.IsNullOrEmpty(ev.Row["id_siswa"].ToString()))
+                        {
+                            ev.Row["id_siswa"] = Guid.NewGuid();
+                        }
+                    }
+                };
 
-            // Bind ke DataGridView
-            dataGridSiswa.Rows.Clear();
-            foreach (var item in siswaItems)
+                // Grid untuk EDIT
+                dataGridSiswa.AllowUserToAddRows = true;
+                dataGridSiswa.AllowUserToDeleteRows = true;
+                dataGridSiswa.DataSource = dtSiswa;
+                dataGridSiswa.Columns["id_siswa"].ReadOnly = true;
+                dataGridSiswa.Columns["id_siswa"].Visible = false; // Hide GUID dari user
+                dataGridSiswa.Columns["no_absen"].HeaderText = "No. Absen";
+                dataGridSiswa.Columns["nama_siswa"].HeaderText = "Nama";
+                dataGridSiswa.Columns["nohp"].HeaderText = "No. HP";
+
+                // Grid untuk TAGIH (dengan checkbox)
+                DataTable dtTagih = dtSiswa.Copy();
+                DataColumn chkCol = new DataColumn("Select", typeof(bool));
+                chkCol.DefaultValue = false;
+                dtTagih.Columns.Add(chkCol);
+                dtTagih.Columns["Select"].SetOrdinal(0);
+
+                dataGridSiswaTagih.DataSource = dtTagih;
+                dataGridSiswaTagih.Columns["Select"].ReadOnly = false;
+                dataGridSiswaTagih.Columns["id_siswa"].Visible = false;
+                dataGridSiswaTagih.Columns["no_absen"].HeaderText = "No. Absen";
+                dataGridSiswaTagih.Columns["nama_siswa"].HeaderText = "Nama";
+                dataGridSiswaTagih.Columns["nohp"].HeaderText = "No. HP";
+                dataGridSiswaTagih.AllowUserToAddRows = false;
+                dataGridSiswaTagih.AllowUserToDeleteRows = false;
+
+                UpdateStatusBar();
+            }
+            catch (Exception ex)
             {
-                dataGridSiswa.Rows.Add(false, item.IdSiswa, item.NamaSiswa, item.NoHp);
+                MessageBox.Show("Error load siswa: " + ex.Message);
             }
         }
 
-        // Muat data Tagihan
+        // Load data Tagihan dengan DataAdapter
         public void LoadTagihan()
         {
-            List<TagihanItem> tagihanItems = new List<TagihanItem>();
-
-            using (SqlConnection con = new SqlConnection(ConnString))
+            try
             {
-                string query = @"
-                    SELECT t.id_tagihan, t.id_siswa, s.nama_siswa, t.tagihan
-                    FROM tagihan t
-                    JOIN siswa s ON t.id_siswa = s.id_siswa
-                    WHERE t.lunas = 0";
-
-                con.Open();
-                cmd = new SqlCommand(query, con);
-                dr = cmd.ExecuteReader();
-
-                while (dr.Read())
+                using (SqlConnection con = new SqlConnection(ConnString))
                 {
-                    tagihanItems.Add(new TagihanItem
-                    {
-                        IdTagihan = dr["id_tagihan"].ToString(),
-                        IdSiswa = Convert.ToInt32(dr["id_siswa"]),
-                        NamaSiswa = dr["nama_siswa"].ToString(),
-                        JumlahTagihan = Convert.ToInt32(dr["tagihan"])
-                    });
-                }
-                dr.Close();
-            }
+                    string query = @"
+                        SELECT t.id_tagihan, t.id_siswa, s.no_absen, s.nama_siswa, t.tagihan
+                        FROM tagihan t
+                        JOIN siswa s ON t.id_siswa = s.id_siswa
+                        WHERE t.lunas = 0
+                        ORDER BY s.no_absen";
 
-            // Bind ke DataGridView
-            dataGridTagihan.Rows.Clear();
-            foreach (var item in tagihanItems)
+                    adapterTagihan = new SqlDataAdapter(query, con);
+
+                    dtTagihan = new DataTable();
+                    adapterTagihan.Fill(dtTagihan);
+
+                    // Tambah kolom checkbox manual
+                    if (!dtTagihan.Columns.Contains("Select"))
+                    {
+                        DataColumn chkCol = new DataColumn("Select", typeof(bool));
+                        chkCol.DefaultValue = false;
+                        dtTagihan.Columns.Add(chkCol);
+                        dtTagihan.Columns["Select"].SetOrdinal(0);
+                    }
+
+                    dataGridTagihan.DataSource = dtTagihan;
+                    dataGridTagihan.Columns["Select"].ReadOnly = false;
+                    dataGridTagihan.Columns["id_tagihan"].Visible = false;
+                    dataGridTagihan.Columns["id_siswa"].Visible = false;
+                    dataGridTagihan.Columns["no_absen"].HeaderText = "No. Absen";
+                    dataGridTagihan.Columns["no_absen"].ReadOnly = true;
+                    dataGridTagihan.Columns["nama_siswa"].HeaderText = "Nama";
+                    dataGridTagihan.Columns["nama_siswa"].ReadOnly = true;
+                    dataGridTagihan.Columns["tagihan"].HeaderText = "Tagihan (Rp)";
+                    dataGridTagihan.Columns["tagihan"].ReadOnly = true;
+                    dataGridTagihan.AllowUserToAddRows = false;
+                    dataGridTagihan.AllowUserToDeleteRows = false;
+
+                    // Update status bar tagihan
+                    UpdateStatusTagihan();
+                }
+            }
+            catch (Exception ex)
             {
-                dataGridTagihan.Rows.Add(false, item.IdTagihan, item.IdSiswa, item.NamaSiswa, item.JumlahTagihan);
+                MessageBox.Show("Error load tagihan: " + ex.Message);
+            }
+        }
+
+        // Update status bar tagihan
+        private void UpdateStatusTagihan()
+        {
+            try
+            {
+                using (SqlConnection con = new SqlConnection(ConnString))
+                {
+                    con.Open();
+                    string query = "SELECT COUNT(DISTINCT id_siswa) FROM tagihan WHERE lunas = 0";
+                    string query1 = "SELECT COUNT(*) FROM tagihan WHERE lunas = 0";
+
+                    using (SqlCommand cmd = new SqlCommand(query, con))
+                    {
+                        int count = (int)cmd.ExecuteScalar();
+
+                        using (SqlCommand cmd2 = new SqlCommand(query1, con))
+                        {
+                            int count1 = (int)cmd2.ExecuteScalar();
+                            toolStripTagih.Text = count.ToString() + " Siswa Belum Lunas (" + count1 + " Tagihan)";
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                toolStripTagih.Text = "Error";
+            }
+        }
+
+        // Save perubahan data Siswa (INSERT/UPDATE/DELETE)
+        private void btnSimpanSiswa_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                // Set GUID untuk row baru yang belum punya id_siswa
+                foreach (DataRow row in dtSiswa.Rows)
+                {
+                    if (row.RowState == DataRowState.Added)
+                    {
+                        if (row["id_siswa"] == DBNull.Value || string.IsNullOrEmpty(row["id_siswa"].ToString()))
+                        {
+                            row["id_siswa"] = Guid.NewGuid();
+                        }
+                    }
+                }
+
+                adapterSiswa.Update(dtSiswa);
+                MessageBox.Show("Data siswa berhasil disimpan!");
+                LoadSiswa();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Error simpan siswa: " + ex.Message);
             }
         }
 
         // Fungsi Tagih
         public void Tagih()
         {
-            int jumlahSelected = dataGridSiswa.Rows
-                .Cast<DataGridViewRow>()
-                .Count(row => Convert.ToBoolean(row.Cells["SelectSiswa"].Value));
+            var dtTagih = (DataTable)dataGridSiswaTagih.DataSource;
+            var selectedRows = dtTagih.AsEnumerable()
+                .Where(row => row.Field<bool>("Select"))
+                .ToList();
 
-            if (jumlahSelected == 0)
+            if (selectedRows.Count == 0)
             {
                 MessageBox.Show("Pilih minimal 1 orang!");
                 return;
             }
 
+            int jumlahTagihan = int.Parse(numKredit.Text);
+            if (jumlahTagihan <= 0)
+            {
+                MessageBox.Show("Jumlah tagihan harus lebih dari 0.");
+                return;
+            }
+
             using (SqlConnection con = new SqlConnection(ConnString))
             {
-                int jumlahTagihan = int.Parse(numKredit.Text); // input nominal tagihan
-
-                if (jumlahTagihan <= 0)
-                {
-                    MessageBox.Show("Jumlah tagihan harus lebih dari 0.");
-                    return;
-                }
-
                 con.Open();
-
-                foreach (DataGridViewRow row in dataGridSiswa.Rows)
+                foreach (var row in selectedRows)
                 {
-                    bool isSelected = Convert.ToBoolean(row.Cells["SelectSiswa"].Value); // checkbox column
-                    if (isSelected)
+                    Guid idTagihan = Guid.NewGuid();
+                    Guid idSiswa = row.Field<Guid>("id_siswa");
+
+                    string query = "INSERT INTO tagihan (id_tagihan, id_siswa, tagihan) VALUES (@id_tagihan, @id_siswa, @tagihan)";
+                    using (SqlCommand cmd = new SqlCommand(query, con))
                     {
-                        string idTagihan = Guid.NewGuid().ToString();
-                        string idSiswa = row.Cells["IdSiswa"].Value.ToString();
-                        string query = @"INSERT INTO tagihan (id_tagihan, id_siswa, tagihan) VALUES (@id_tagihan, @id_siswa, @tagihan)";
-                        using (cmd = new SqlCommand(query, con))
-                        {
-                            cmd.Parameters.AddWithValue("@id_tagihan", idTagihan);
-                            cmd.Parameters.AddWithValue("@id_siswa", idSiswa);
-                            cmd.Parameters.AddWithValue("@tagihan", jumlahTagihan);
-                            cmd.ExecuteNonQuery();
-                        }
+                        cmd.Parameters.AddWithValue("@id_tagihan", idTagihan);
+                        cmd.Parameters.AddWithValue("@id_siswa", idSiswa);
+                        cmd.Parameters.AddWithValue("@tagihan", jumlahTagihan);
+                        cmd.ExecuteNonQuery();
                     }
                 }
-
                 con.Close();
             }
 
-            LoadTagihan(); // refresh table to show unpaid only
-            MessageBox.Show("Menagih sebanyak " + jumlahSelected + " siswa");
+            LoadTagihan();
+            MessageBox.Show($"Menagih sebanyak {selectedRows.Count} siswa");
+            UpdateStatusTagihan();
         }
 
         // Fungsi Lunas
         public void Lunas()
         {
-            int jumlahSelected = dataGridTagihan.Rows
-                .Cast<DataGridViewRow>()
-                .Count(row => Convert.ToBoolean(row.Cells["SelectTagihan"].Value));
+            var selectedRows = dtTagihan.AsEnumerable()
+                .Where(row => row.Field<bool>("Select"))
+                .ToList();
 
-            if (jumlahSelected == 0) {
+            if (selectedRows.Count == 0)
+            {
                 MessageBox.Show("Pilih minimal 1 orang!");
                 return;
             }
@@ -178,40 +267,36 @@ namespace KasSiswa
             using (SqlConnection con = new SqlConnection(ConnString))
             {
                 con.Open();
-
-                foreach (DataGridViewRow row in dataGridTagihan.Rows)
+                foreach (var row in selectedRows)
                 {
-                    bool isSelected = Convert.ToBoolean(row.Cells["SelectTagihan"].Value); // checkbox column
-                    if (isSelected)
-                    {
-                        string idTagihan = row.Cells["IdTagihan"].Value.ToString();
-                        string query = "UPDATE tagihan SET lunas = 1 WHERE id_tagihan = @id_tagihan";
+                    Guid idTagihan = row.Field<Guid>("id_tagihan");
+                    string query = "UPDATE tagihan SET lunas = 1 WHERE id_tagihan = @id_tagihan";
 
-                        using (cmd = new SqlCommand(query, con))
-                        {
-                            cmd.Parameters.AddWithValue("@id_tagihan", idTagihan);
-                            cmd.ExecuteNonQuery();
-                        }
+                    using (SqlCommand cmd = new SqlCommand(query, con))
+                    {
+                        cmd.Parameters.AddWithValue("@id_tagihan", idTagihan);
+                        cmd.ExecuteNonQuery();
                     }
                 }
                 con.Close();
             }
 
-            LoadTagihan(); // refresh table to show unpaid only
-            MessageBox.Show("Melunasi sebanyak " + jumlahSelected + " siswa");
-        }
-
-        private void kasAdmin_Load(object sender, EventArgs e)
-        {
-            loadSiswa();
             LoadTagihan();
+            MessageBox.Show($"Melunasi sebanyak {selectedRows.Count} siswa");
+            UpdateStatusTagihan();
         }
 
-        // Tombol Refresh
-        //
+        // Update status bar
+        private void UpdateStatusBar()
+        {
+            if (dtSiswa != null)
+                toolStripSiswa.Text = dtSiswa.Rows.Count.ToString() + " Siswa";
+        }
+
+        // Event Handlers
         private void btnRefreshSiswa_Click(object sender, EventArgs e)
         {
-            loadSiswa();
+            LoadSiswa();
         }
 
         private void btnRefreshTagihan_Click(object sender, EventArgs e)
@@ -219,8 +304,6 @@ namespace KasSiswa
             LoadTagihan();
         }
 
-        // Tombol Tagih/Lunas
-        //
         private void btnTagih_Click(object sender, EventArgs e)
         {
             Tagih();
